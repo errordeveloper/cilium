@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package aws
 
 import (
 	"context"
@@ -33,10 +33,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// startENIAllocator kicks of ENI allocation, the initial connection to AWS
+// StartAllocator kicks of ENI allocation, the initial connection to AWS
 // APIs is done in a blocking manner, given that is successful, a controller is
 // started to manage allocation based on CiliumNode custom resources
-func startENIAllocator(awsClientQPSLimit float64, awsClientBurst int, eniTags map[string]string) error {
+func StartAllocator(awsClientQPSLimit float64, awsClientBurst int, eniTags map[string]string) error {
 	log.Info("Starting ENI allocator...")
 
 	cfg, err := external.LoadDefaultAWSConfig()

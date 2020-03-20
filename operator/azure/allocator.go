@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package azure
 
 import (
 	"context"
@@ -28,8 +28,8 @@ import (
 	"github.com/cilium/cilium/pkg/option"
 )
 
-// startAzureAllocator starts the Azure IP allocator
-func startAzureAllocator(clientQPSLimit float64, clientBurst int) error {
+// StartAllocator starts the Azure IP allocator
+func StartAllocator(clientQPSLimit float64, clientBurst int) error {
 	var (
 		azMetrics azureAPI.MetricsAPI
 		iMetrics  ipam.MetricsAPI

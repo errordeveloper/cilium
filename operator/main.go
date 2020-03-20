@@ -20,7 +20,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/cilium/cilium/pkg/aws/eni"
+	"github.com/cilium/cilium/operator/aws"
 	"github.com/cilium/cilium/pkg/components"
 	"github.com/cilium/cilium/pkg/k8s"
 	clientset "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned"
@@ -158,15 +158,9 @@ func runOperator(cmd *cobra.Command) {
 
 	switch option.Config.IPAM {
 	case option.IPAMENI:
-		if err := eni.UpdateLimitsFromUserDefinedMappings(option.Config.AwsInstanceLimitMapping); err != nil {
-			log.WithError(err).Fatal("Parse aws-instance-limit-mapping failed")
-		}
-		if option.Config.UpdateEC2AdapterLimitViaAPI {
-			if err := eni.UpdateLimitsFromEC2API(context.TODO()); err != nil {
-				log.WithError(err).Error("Unable to update instance type to adapter limits from EC2 API")
-			}
-		}
-		if err := startENIAllocator(
+		aws.UpdateLimits()
+
+		if err := aws.StartAllocator(
 			option.Config.IPAMAPIQPSLimit,
 			option.Config.IPAMAPIBurst,
 			option.Config.ENITags); err != nil {
@@ -176,7 +170,7 @@ func runOperator(cmd *cobra.Command) {
 		startSynchronizingCiliumNodes()
 
 	case option.IPAMAzure:
-		if err := startAzureAllocator(option.Config.IPAMAPIQPSLimit, option.Config.IPAMAPIBurst); err != nil {
+		if err := azure.Start(option.Config.IPAMAPIQPSLimit, option.Config.IPAMAPIBurst); err != nil {
 			log.WithError(err).Fatal("Unable to start Azure allocator")
 		}
 
