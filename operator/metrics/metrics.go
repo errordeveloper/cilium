@@ -12,39 +12,42 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package metrics
 
 import (
 	"net/http"
 
+	"github.com/cilium/cilium/pkg/logging"
+	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/option"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-const metricNamespace = "cilium_operator"
+const Namespace = "cilium_operator"
 
 var (
-	registry *prometheus.Registry
+	log = logging.DefaultLogger.WithField(logfields.LogSubsys, "cilium-operator")
 
-	metricsAddress string
+	Address  string
+	Registry *prometheus.Registry
 )
 
-func registerMetrics() {
-	registry = prometheus.NewPedanticRegistry()
-	registry.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{Namespace: metricNamespace}))
+func Register() {
+	Registry = prometheus.NewPedanticRegistry()
+	Registry.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{Namespace: Namespace}))
 	go func() {
 		// The Handler function provides a default handler to expose metrics
 		// via an HTTP server. "/metrics" is the usual endpoint for that.
-		http.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
+		http.Handle("/metrics", promhttp.HandlerFor(Registry, promhttp.HandlerOpts{}))
 		log.Fatal(http.ListenAndServe(getPrometheusServerAddr(), nil))
 	}()
 }
 
 func getPrometheusServerAddr() string {
 	if option.Config.OperatorPrometheusServeAddr == "" {
-		return metricsAddress
+		return Address
 	}
 	return option.Config.OperatorPrometheusServeAddr
 }

@@ -20,7 +20,9 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/cilium/cilium/operator/aws"
+	awsAllocator "github.com/cilium/cilium/operator/allocators/aws"
+	azureAllocator "github.com/cilium/cilium/operator/allocators/azure"
+
 	"github.com/cilium/cilium/pkg/components"
 	"github.com/cilium/cilium/pkg/k8s"
 	clientset "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned"
@@ -158,19 +160,18 @@ func runOperator(cmd *cobra.Command) {
 
 	switch option.Config.IPAM {
 	case option.IPAMENI:
-		aws.UpdateLimits()
+		if err := awsAllocator.Init(); err != nil {
+			log.WithError(err).Fatal("Unable to initialize ENI allocator")
+		}
 
-		if err := aws.StartAllocator(
-			option.Config.IPAMAPIQPSLimit,
-			option.Config.IPAMAPIBurst,
-			option.Config.ENITags); err != nil {
+		if err := awsAllocator.Start(nodeManager); err != nil {
 			log.WithError(err).Fatal("Unable to start ENI allocator")
 		}
 
 		startSynchronizingCiliumNodes()
 
 	case option.IPAMAzure:
-		if err := azure.Start(option.Config.IPAMAPIQPSLimit, option.Config.IPAMAPIBurst); err != nil {
+		if err := azureAllocator.Start(nodeManager); err != nil {
 			log.WithError(err).Fatal("Unable to start Azure allocator")
 		}
 

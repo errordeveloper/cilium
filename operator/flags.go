@@ -189,7 +189,7 @@ func init() {
 	flags.MarkDeprecated("api-server-port", fmt.Sprintf("Please use %s instead", option.OperatorAPIServeAddr))
 
 	// Deprecated, remove in 1.9
-	flags.StringVar(&metricsAddress, "metrics-address", ":6942", "Address to serve Prometheus metrics")
+	flags.StringVar(&metrics.Address, "metrics-address", ":6942", "Address to serve Prometheus metrics")
 	flags.MarkDeprecated("metrics-address", fmt.Sprintf("Please use %s instead", option.OperatorPrometheusServeAddr))
 
 	flags.String(option.CMDRef, "", "Path to cmdref output directory")

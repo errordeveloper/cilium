@@ -12,24 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package azure
+package azureallocator
 
 import (
 	"context"
 	"fmt"
 	"time"
 
+	operatorMetrics "github.com/cilium/cilium/operator/metrics"
 	apiMetrics "github.com/cilium/cilium/pkg/api/metrics"
 	azureAPI "github.com/cilium/cilium/pkg/azure/api"
 	azureIPAM "github.com/cilium/cilium/pkg/azure/ipam"
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/ipam"
 	ipamMetrics "github.com/cilium/cilium/pkg/ipam/metrics"
+	"github.com/cilium/cilium/pkg/logging"
+	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/option"
 )
 
+var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "cilium-operator-aws-allocator")
+
 // StartAllocator starts the Azure IP allocator
-func StartAllocator(clientQPSLimit float64, clientBurst int) error {
+func StartAllocator(nodeManager *ipam.NodeManager) error {
 	var (
 		azMetrics azureAPI.MetricsAPI
 		iMetrics  ipam.MetricsAPI
@@ -46,15 +51,15 @@ func StartAllocator(clientQPSLimit float64, clientBurst int) error {
 	}
 
 	if option.Config.EnableMetrics {
-		azMetrics = apiMetrics.NewPrometheusMetrics(metricNamespace, "azure", registry)
-		iMetrics = ipamMetrics.NewPrometheusMetrics(metricNamespace, registry)
+		azMetrics = apiMetrics.NewPrometheusMetrics(operatorMetrics.Namespace, "azure", operatorMetrics.Registry)
+		iMetrics = ipamMetrics.NewPrometheusMetrics(operatorMetrics.Namespace, operatorMetrics.Registry)
 	} else {
 		azMetrics = &apiMetrics.NoOpMetrics{}
 		iMetrics = &ipamMetrics.NoOpMetrics{}
 	}
 
 	azureClient, err := azureAPI.NewClient(option.Config.AzureSubscriptionID,
-		option.Config.AzureResourceGroup, azMetrics, clientQPSLimit, clientBurst)
+		option.Config.AzureResourceGroup, azMetrics, option.Config.IPAMAPIQPSLimit, option.Config.IPAMAPIBurst)
 	if err != nil {
 		return fmt.Errorf("unable to create Azure client: %s", err)
 	}

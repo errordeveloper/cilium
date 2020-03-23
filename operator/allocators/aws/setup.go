@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package aws
+package awsallocator
 
 import (
 	"context"
@@ -21,8 +21,8 @@ import (
 	"github.com/cilium/cilium/pkg/option"
 )
 
-// UpdateLimits makes appropriate calls to update ENI limits based on given options.
-func UpdateLimits() {
+// Init makes appropriate calls to update ENI limits based on given options.
+func Init() {
 	if err := eni.UpdateLimitsFromUserDefinedMappings(option.Config.AwsInstanceLimitMapping); err != nil {
 		log.WithError(err).Fatal("Parse aws-instance-limit-mapping failed")
 	}

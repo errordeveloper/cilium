@@ -153,7 +153,7 @@ func (ipam *IPAM) reserveLocalRoutes() {
 		return
 	}
 
-	routes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
+	routes, err := netlink.RouteList(nil, 4) // netlink.FAMILY_V4)
 	if err != nil {
 		log.WithError(err).Warn("Unable to retrieve local routes")
 		return
