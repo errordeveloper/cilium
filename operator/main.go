@@ -243,7 +243,7 @@ func runOperator(cmd *cobra.Command) {
 		}
 
 		if option.Config.SyncK8sNodes {
-			if err := runNodeWatcher(); err != nil {
+			if err := nodeManager.RunNodeWatcher(); err != nil {
 				log.WithError(err).Error("Unable to setup node watcher")
 			}
 		}
