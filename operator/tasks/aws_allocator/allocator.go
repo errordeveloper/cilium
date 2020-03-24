@@ -36,7 +36,19 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "cilium-operator-aws-allocator")
+var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "cilium-operator/tasks/aws_allocator")
+
+// Init makes appropriate calls to update ENI limits based on given options.
+func Init() {
+	if err := eni.UpdateLimitsFromUserDefinedMappings(option.Config.AwsInstanceLimitMapping); err != nil {
+		log.WithError(err).Fatal("Parse aws-instance-limit-mapping failed")
+	}
+	if option.Config.UpdateEC2AdapterLimitViaAPI {
+		if err := eni.UpdateLimitsFromEC2API(context.TODO()); err != nil {
+			log.WithError(err).Error("Unable to update instance type to adapter limits from EC2 API")
+		}
+	}
+}
 
 // Start kicks of ENI allocation, the initial connection to AWS
 // APIs is done in a blocking manner, given that is successful, a controller is

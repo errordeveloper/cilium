@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package nodemanager
 
 import (
 	"context"
@@ -21,8 +21,11 @@ import (
 	"github.com/cilium/cilium/pkg/ipam"
 	"github.com/cilium/cilium/pkg/k8s"
 	"github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	clientset "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned"
 	"github.com/cilium/cilium/pkg/k8s/informer"
 	k8sversion "github.com/cilium/cilium/pkg/k8s/version"
+	"github.com/cilium/cilium/pkg/logging"
+	"github.com/cilium/cilium/pkg/logging/logfields"
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -31,29 +34,28 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-var nodeManager *ipam.NodeManager
+var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "cilium-operator/tasks/node_manager")
 
-func ciliumNodeUpdated(resource *v2.CiliumNode) {
-	if nodeManager != nil {
-		// resource is deep copied before it is stored in pkg/aws/eni
-		nodeManager.Update(resource)
+type NodeManager struct {
+	*ipam.NodeManager
+	clientSet clientset.Interface
+}
+
+func NewNodeManager(clientSet clientset.Interface) *NodeManager {
+	return &NodeManager{
+		NodeManager: &ipam.NodeManager{},
+		clientSet:   clientSet,
 	}
 }
 
-func ciliumNodeDeleted(nodeName string) {
-	if nodeManager != nil {
-		nodeManager.Delete(nodeName)
-	}
-}
-
-func startSynchronizingCiliumNodes() {
+func (nodeManager *NodeManager) StartSyncTask() {
 	log.Info("Starting to synchronize CiliumNode custom resources...")
 
 	// TODO: The operator is currently storing a full copy of the
 	// CiliumNode resource, as the resource grows, we may want to consider
 	// introducing a slim version of it.
 	_, ciliumNodeInformer := informer.NewInformer(
-		cache.NewListWatchFromClient(ciliumK8sClient.CiliumV2().RESTClient(),
+		cache.NewListWatchFromClient(nodeManager.clientSet.CiliumV2().RESTClient(),
 			"ciliumnodes", v1.NamespaceAll, fields.Everything()),
 		&v2.CiliumNode{},
 		0,
@@ -61,7 +63,7 @@ func startSynchronizingCiliumNodes() {
 			AddFunc: func(obj interface{}) {
 				if node, ok := obj.(*v2.CiliumNode); ok {
 					// node is deep copied before it is stored in pkg/aws/eni
-					ciliumNodeUpdated(node)
+					nodeManager.Update(node)
 				} else {
 					log.Warningf("Unknown CiliumNode object type %s received: %+v", reflect.TypeOf(obj), obj)
 				}
@@ -69,7 +71,7 @@ func startSynchronizingCiliumNodes() {
 			UpdateFunc: func(oldObj, newObj interface{}) {
 				if node, ok := newObj.(*v2.CiliumNode); ok {
 					// node is deep copied before it is stored in pkg/aws/eni
-					ciliumNodeUpdated(node)
+					nodeManager.Update(node)
 				} else {
 					log.Warningf("Unknown CiliumNode object type %s received: %+v", reflect.TypeOf(newObj), newObj)
 				}
@@ -83,11 +85,11 @@ func startSynchronizingCiliumNodes() {
 					// known state and the object no longer
 					// exists.
 					if node, ok := deletedObj.Obj.(*v2.CiliumNode); ok {
-						ciliumNodeDeleted(node.Name)
+						nodeManager.Delete(node.Name)
 						return
 					}
 				} else if node, ok := obj.(*v2.CiliumNode); ok {
-					ciliumNodeDeleted(node.Name)
+					nodeManager.Delete(node.Name)
 					return
 				}
 				log.Warningf("Unknown CiliumNode object type %s received: %+v", reflect.TypeOf(obj), obj)
@@ -99,47 +101,51 @@ func startSynchronizingCiliumNodes() {
 	go ciliumNodeInformer.Run(wait.NeverStop)
 }
 
-func deleteCiliumNode(name string) {
-	if err := ciliumK8sClient.CiliumV2().CiliumNodes().Delete(context.TODO(), name, metav1.DeleteOptions{}); err == nil {
+type NodeUpdater struct{ *NodeManager }
+
+func (nodeManager *NodeManager) NewNodeUpdater() *NodeUpdater {
+	return &NodeUpdater{nodeManager}
+}
+
+func (nodeUpdater *NodeUpdater) Delete(name string) {
+	if err := nodeUpdater.clientSet.CiliumV2().CiliumNodes().Delete(context.TODO(), name, metav1.DeleteOptions{}); err == nil {
 		log.WithField("name", name).Info("Removed CiliumNode after receiving node deletion event")
 	}
-	ciliumNodeDeleted(name)
+	nodeUpdater.NodeManager.Delete(name)
 }
 
-type ciliumNodeUpdateImplementation struct{}
-
-func (c *ciliumNodeUpdateImplementation) Get(node string) (*v2.CiliumNode, error) {
-	return ciliumK8sClient.CiliumV2().CiliumNodes().Get(context.TODO(), node, metav1.GetOptions{})
+func (nodeUpdater *NodeUpdater) Get(node string) (*v2.CiliumNode, error) {
+	return nodeUpdater.clientSet.CiliumV2().CiliumNodes().Get(context.TODO(), node, metav1.GetOptions{})
 }
 
-func (c *ciliumNodeUpdateImplementation) UpdateStatus(node, origNode *v2.CiliumNode) (*v2.CiliumNode, error) {
+func (nodeUpdater *NodeUpdater) UpdateStatus(node, origNode *v2.CiliumNode) (*v2.CiliumNode, error) {
 	// If k8s supports status as a sub-resource, then we need to update the status separately
 	k8sCapabilities := k8sversion.Capabilities()
 	switch {
 	case k8sCapabilities.UpdateStatus:
 		if !reflect.DeepEqual(origNode.Status, node.Status) {
-			return ciliumK8sClient.CiliumV2().CiliumNodes().UpdateStatus(context.TODO(), node, metav1.UpdateOptions{})
+			return nodeUpdater.clientSet.CiliumV2().CiliumNodes().UpdateStatus(context.TODO(), node, metav1.UpdateOptions{})
 		}
 	default:
 		if !reflect.DeepEqual(origNode.Status, node.Status) {
-			return ciliumK8sClient.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
+			return nodeUpdater.clientSet.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
 		}
 	}
 
 	return nil, nil
 }
 
-func (c *ciliumNodeUpdateImplementation) Update(node, origNode *v2.CiliumNode) (*v2.CiliumNode, error) {
+func (nodeUpdater *NodeUpdater) Update(node, origNode *v2.CiliumNode) (*v2.CiliumNode, error) {
 	// If k8s supports status as a sub-resource, then we need to update the status separately
 	k8sCapabilities := k8sversion.Capabilities()
 	switch {
 	case k8sCapabilities.UpdateStatus:
 		if !reflect.DeepEqual(origNode.Spec, node.Spec) {
-			return ciliumK8sClient.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
+			return nodeUpdater.clientSet.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
 		}
 	default:
 		if !reflect.DeepEqual(origNode, node) {
-			return ciliumK8sClient.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
+			return nodeUpdater.clientSet.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
 		}
 	}
 

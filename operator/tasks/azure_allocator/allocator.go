@@ -31,7 +31,7 @@ import (
 	"github.com/cilium/cilium/pkg/option"
 )
 
-var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "cilium-operator-aws-allocator")
+var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "cilium-operator/tasks/azure_allocator")
 
 // StartAllocator starts the Azure IP allocator
 func StartAllocator(nodeManager *ipam.NodeManager) error {
