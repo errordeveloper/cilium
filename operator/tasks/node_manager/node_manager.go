@@ -41,11 +41,20 @@ type NodeManager struct {
 	clientSet clientset.Interface
 }
 
-func NewNodeManager(clientSet clientset.Interface) *NodeManager {
-	return &NodeManager{
-		NodeManager: &ipam.NodeManager{},
-		clientSet:   clientSet,
+func NewNodeManager(instancesAPI ipam.AllocationImplementation, clientSet clientset.Interface, metricsAPI ipam.MetricsAPI, parallelWorkers int64, releaseExcessIPs bool) (*NodeManager, error) {
+	nodeManager := &NodeManager{
+		clientSet: clientSet,
 	}
+
+	getterUpdater := &nodeGetterUpdater{nodeManager}
+
+	ipamNodeManager, err := ipam.NewNodeManager(instancesAPI, getterUpdater, metricsAPI, parallelWorkers, releaseExcessIPs)
+	if err != nil {
+		return nil, err
+	}
+
+	nodeManager.NodeManager = ipamNodeManager
+	return nodeManager, nil
 }
 
 func (nodeManager *NodeManager) StartSyncTask() {
@@ -101,51 +110,47 @@ func (nodeManager *NodeManager) StartSyncTask() {
 	go ciliumNodeInformer.Run(wait.NeverStop)
 }
 
-type NodeUpdater struct{ *NodeManager }
+type nodeGetterUpdater struct{ *NodeManager }
 
-func (nodeManager *NodeManager) NewNodeUpdater() *NodeUpdater {
-	return &NodeUpdater{nodeManager}
-}
-
-func (nodeUpdater *NodeUpdater) Delete(name string) {
-	if err := nodeUpdater.clientSet.CiliumV2().CiliumNodes().Delete(context.TODO(), name, metav1.DeleteOptions{}); err == nil {
+func (n *nodeGetterUpdater) Delete(name string) {
+	if err := n.clientSet.CiliumV2().CiliumNodes().Delete(context.TODO(), name, metav1.DeleteOptions{}); err == nil {
 		log.WithField("name", name).Info("Removed CiliumNode after receiving node deletion event")
 	}
-	nodeUpdater.NodeManager.Delete(name)
+	n.NodeManager.Delete(name)
 }
 
-func (nodeUpdater *NodeUpdater) Get(node string) (*v2.CiliumNode, error) {
-	return nodeUpdater.clientSet.CiliumV2().CiliumNodes().Get(context.TODO(), node, metav1.GetOptions{})
+func (n *nodeGetterUpdater) Get(node string) (*v2.CiliumNode, error) {
+	return n.clientSet.CiliumV2().CiliumNodes().Get(context.TODO(), node, metav1.GetOptions{})
 }
 
-func (nodeUpdater *NodeUpdater) UpdateStatus(node, origNode *v2.CiliumNode) (*v2.CiliumNode, error) {
+func (n *nodeGetterUpdater) UpdateStatus(node, origNode *v2.CiliumNode) (*v2.CiliumNode, error) {
 	// If k8s supports status as a sub-resource, then we need to update the status separately
 	k8sCapabilities := k8sversion.Capabilities()
 	switch {
 	case k8sCapabilities.UpdateStatus:
 		if !reflect.DeepEqual(origNode.Status, node.Status) {
-			return nodeUpdater.clientSet.CiliumV2().CiliumNodes().UpdateStatus(context.TODO(), node, metav1.UpdateOptions{})
+			return n.clientSet.CiliumV2().CiliumNodes().UpdateStatus(context.TODO(), node, metav1.UpdateOptions{})
 		}
 	default:
 		if !reflect.DeepEqual(origNode.Status, node.Status) {
-			return nodeUpdater.clientSet.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
+			return n.clientSet.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
 		}
 	}
 
 	return nil, nil
 }
 
-func (nodeUpdater *NodeUpdater) Update(node, origNode *v2.CiliumNode) (*v2.CiliumNode, error) {
+func (n *nodeGetterUpdater) Update(node, origNode *v2.CiliumNode) (*v2.CiliumNode, error) {
 	// If k8s supports status as a sub-resource, then we need to update the status separately
 	k8sCapabilities := k8sversion.Capabilities()
 	switch {
 	case k8sCapabilities.UpdateStatus:
 		if !reflect.DeepEqual(origNode.Spec, node.Spec) {
-			return nodeUpdater.clientSet.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
+			return n.clientSet.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
 		}
 	default:
 		if !reflect.DeepEqual(origNode, node) {
-			return nodeUpdater.clientSet.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
+			return n.clientSet.CiliumV2().CiliumNodes().Update(context.TODO(), node, metav1.UpdateOptions{})
 		}
 	}
 

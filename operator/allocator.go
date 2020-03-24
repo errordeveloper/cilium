@@ -14,8 +14,8 @@
 
 package main
 
-type allocator interface {
-	Name() string
-	Init() error
-	Start(nodeManager *ipam.NodeManager) error
-}
+// type allocator interface {
+// 	Name() string
+// 	Init() error
+// 	Start(nodeManager *ipam.NodeManager) error
+// }

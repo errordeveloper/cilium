@@ -20,9 +20,9 @@ import (
 	"os"
 	"os/signal"
 
-	awsAllocator "github.com/cilium/cilium/operator/allocators/aws"
-	azureAllocator "github.com/cilium/cilium/operator/allocators/azure"
-
+	operatorMetrics "github.com/cilium/cilium/operator/metrics"
+	awsAllocator "github.com/cilium/cilium/operator/tasks/aws_allocator"
+	azureAllocator "github.com/cilium/cilium/operator/tasks/azure_allocator"
 	"github.com/cilium/cilium/pkg/components"
 	"github.com/cilium/cilium/pkg/k8s"
 	clientset "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned"
@@ -128,7 +128,7 @@ func runOperator(cmd *cobra.Command) {
 	go startServer(shutdownSignal, k8sInitDone, getAPIServerAddr()...)
 
 	if option.Config.EnableMetrics {
-		registerMetrics()
+		operatorMetrics.Register()
 	}
 
 	k8s.Configure(
@@ -160,22 +160,14 @@ func runOperator(cmd *cobra.Command) {
 
 	switch option.Config.IPAM {
 	case option.IPAMENI:
-		if err := awsAllocator.Init(); err != nil {
-			log.WithError(err).Fatal("Unable to initialize ENI allocator")
-		}
-
-		if err := awsAllocator.Start(nodeManager); err != nil {
+		awsAllocator.Init()
+		if err := awsAllocator.Start(ciliumK8sClient); err != nil {
 			log.WithError(err).Fatal("Unable to start ENI allocator")
 		}
-
-		startSynchronizingCiliumNodes()
-
 	case option.IPAMAzure:
-		if err := azureAllocator.Start(nodeManager); err != nil {
+		if err := azureAllocator.Start(ciliumK8sClient); err != nil {
 			log.WithError(err).Fatal("Unable to start Azure allocator")
 		}
-
-		startSynchronizingCiliumNodes()
 	}
 
 	if kvstoreEnabled() {

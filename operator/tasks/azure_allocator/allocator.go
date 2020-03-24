@@ -20,12 +20,14 @@ import (
 	"time"
 
 	operatorMetrics "github.com/cilium/cilium/operator/metrics"
+	operatorNodeManager "github.com/cilium/cilium/operator/tasks/node_manager"
 	apiMetrics "github.com/cilium/cilium/pkg/api/metrics"
 	azureAPI "github.com/cilium/cilium/pkg/azure/api"
 	azureIPAM "github.com/cilium/cilium/pkg/azure/ipam"
 	"github.com/cilium/cilium/pkg/controller"
 	"github.com/cilium/cilium/pkg/ipam"
 	ipamMetrics "github.com/cilium/cilium/pkg/ipam/metrics"
+	clientset "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/option"
@@ -34,7 +36,7 @@ import (
 var log = logging.DefaultLogger.WithField(logfields.LogSubsys, "cilium-operator/tasks/azure_allocator")
 
 // StartAllocator starts the Azure IP allocator
-func StartAllocator(nodeManager *ipam.NodeManager) error {
+func Start(clientSet clientset.Interface) error {
 	var (
 		azMetrics azureAPI.MetricsAPI
 		iMetrics  ipam.MetricsAPI
@@ -64,7 +66,8 @@ func StartAllocator(nodeManager *ipam.NodeManager) error {
 		return fmt.Errorf("unable to create Azure client: %s", err)
 	}
 	instances := azureIPAM.NewInstancesManager(azureClient)
-	nodeManager, err = ipam.NewNodeManager(instances, &ciliumNodeUpdateImplementation{}, iMetrics, option.Config.ParallelAllocWorkers, false)
+
+	nodeManager, err := operatorNodeManager.NewNodeManager(instances, clientSet, iMetrics, option.Config.ParallelAllocWorkers, false)
 	if err != nil {
 		return fmt.Errorf("unable to initialize Azure node manager: %s", err)
 	}
@@ -88,6 +91,8 @@ func StartAllocator(nodeManager *ipam.NodeManager) error {
 				},
 			})
 	}()
+
+	nodeManager.StartSyncTask()
 
 	return nil
 }

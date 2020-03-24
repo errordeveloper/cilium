@@ -16,5 +16,6 @@
 package main
 
 import (
+	_ "github.com/cilium/cilium/operator/tasks/allocator_aws"
 	_ "github.com/cilium/cilium/pkg/policy/groups/aws" // Register AWS policy group provider.
 )

@@ -20,12 +20,13 @@ import (
 	"time"
 
 	operatorMetrics "github.com/cilium/cilium/operator/metrics"
+	operatorNodeManager "github.com/cilium/cilium/operator/tasks/node_manager"
 	apiMetrics "github.com/cilium/cilium/pkg/api/metrics"
 	ec2shim "github.com/cilium/cilium/pkg/aws/ec2"
 	"github.com/cilium/cilium/pkg/aws/eni"
 	"github.com/cilium/cilium/pkg/controller"
-	"github.com/cilium/cilium/pkg/ipam"
 	ipamMetrics "github.com/cilium/cilium/pkg/ipam/metrics"
+	clientset "github.com/cilium/cilium/pkg/k8s/client/clientset/versioned"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/option"
@@ -53,7 +54,7 @@ func Init() {
 // Start kicks of ENI allocation, the initial connection to AWS
 // APIs is done in a blocking manner, given that is successful, a controller is
 // started to manage allocation based on CiliumNode custom resources
-func Start(nodeManager *ipam.NodeManager) error {
+func Start(clientSet clientset.Interface) error {
 	log.Info("Starting ENI allocator...")
 
 	cfg, err := external.LoadDefaultAWSConfig()
@@ -76,19 +77,19 @@ func Start(nodeManager *ipam.NodeManager) error {
 	cfg.Region = instance.Region
 
 	var (
-		ec2Client *ec2shim.Client
-		instances *eni.InstancesManager
+		nodeManager *operatorNodeManager.NodeManager
+		ec2Client   *ec2shim.Client
+		instances   *eni.InstancesManager
 	)
 
 	if option.Config.EnableMetrics {
-		aMetrics := apiMetrics.NewPrometheusMetrics("ipam", operatorMetric.Namespace, registry)
+		aMetrics := apiMetrics.NewPrometheusMetrics("ipam", operatorMetrics.Namespace, operatorMetrics.Registry)
 		ec2Client = ec2shim.NewClient(ec2.New(cfg), aMetrics, option.Config.IPAMAPIQPSLimit, option.Config.IPAMAPIBurst)
 		log.Info("Connected to EC2 service API")
-		iMetrics := ipamMetrics.NewPrometheusMetrics(metricNamespace, registry)
+		iMetrics := ipamMetrics.NewPrometheusMetrics(operatorMetrics.Namespace, operatorMetrics.Registry)
 
 		instances = eni.NewInstancesManager(ec2Client, option.Config.ENITags)
-		nodeManager, err = ipam.NewNodeManager(instances, &ciliumNodeUpdateImplementation{}, iMetrics, option.Config.ParallelAllocWorkers,
-			option.Config.AwsReleaseExcessIps)
+		nodeManager, err = operatorNodeManager.NewNodeManager(instances, clientSet, iMetrics, option.Config.ParallelAllocWorkers, option.Config.AwsReleaseExcessIps)
 		if err != nil {
 			return fmt.Errorf("unable to initialize ENI node manager: %s", err)
 		}
@@ -96,8 +97,7 @@ func Start(nodeManager *ipam.NodeManager) error {
 		ec2Client = ec2shim.NewClient(ec2.New(cfg), &apiMetrics.NoOpMetrics{}, option.Config.IPAMAPIQPSLimit, option.Config.IPAMAPIBurst)
 		log.Info("Connected to EC2 service API")
 		instances = eni.NewInstancesManager(ec2Client, option.Config.ENITags)
-		nodeManager, err = ipam.NewNodeManager(instances, &ciliumNodeUpdateImplementation{}, &ipamMetrics.NoOpMetrics{}, option.Config.ParallelAllocWorkers,
-			option.Config.AwsReleaseExcessIps)
+		nodeManager, err = operatorNodeManager.NewNodeManager(instances, clientSet, &ipamMetrics.NoOpMetrics{}, option.Config.ParallelAllocWorkers, option.Config.AwsReleaseExcessIps)
 		if err != nil {
 			return fmt.Errorf("unable to initialize ENI node manager: %s", err)
 		}
@@ -124,5 +124,6 @@ func Start(nodeManager *ipam.NodeManager) error {
 			})
 	}()
 
+	nodeManager.StartSyncTask()
 	return nil
 }

@@ -15,4 +15,6 @@
 
 package main
 
-import ()
+import (
+	_ "github.com/cilium/cilium/operator/tasks/allocator_azure"
+)

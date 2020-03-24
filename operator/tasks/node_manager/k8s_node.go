@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package nodemanager
 
 import (
 	"context"
@@ -44,7 +44,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-func runNodeWatcher() error {
+func (nodeManager *NodeManager) RunNodeWatcher() error {
 	log.Info("Starting to synchronize k8s nodes to kvstore...")
 
 	serNodes := serializer.NewFunctionQueue(1024)
@@ -105,7 +105,7 @@ func runNodeWatcher() error {
 				serNodes.Enqueue(func() error {
 					deletedNode := k8s.ParseNode(n, source.Kubernetes)
 					ciliumNodeStore.DeleteLocalKey(context.TODO(), deletedNode)
-					deleteCiliumNode(n.Name)
+					nodeManager.Delete(n.Name)
 					return nil
 				}, serializer.NoRetry)
 			},
@@ -125,13 +125,13 @@ func runNodeWatcher() error {
 
 			switch option.Config.IPAM {
 			case option.IPAMENI, option.IPAMAzure:
-				nodes, err := ciliumK8sClient.CiliumV2().CiliumNodes().List(context.TODO(), meta_v1.ListOptions{})
+				nodes, err := nodeManager.clientSet.CiliumV2().CiliumNodes().List(context.TODO(), meta_v1.ListOptions{})
 				if err != nil {
 					log.WithError(err).Warning("Unable to list CiliumNodes. Won't clean up stale CiliumNodes")
 				} else {
 					for _, node := range nodes.Items {
 						if _, ok, err := k8sNodeStore.GetByKey(node.Name); !ok && err == nil {
-							deleteCiliumNode(node.Name)
+							nodeManager.Delete(node.Name)
 						}
 					}
 				}
@@ -157,11 +157,11 @@ func runNodeWatcher() error {
 	}()
 
 	if option.Config.EnableCNPNodeStatusGC && option.Config.CNPNodeStatusGCInterval != 0 {
-		go runCNPNodeStatusGC("cnp-node-gc", false, ciliumNodeStore)
+		go nodeManager.runCNPNodeStatusGC("cnp-node-gc", false, ciliumNodeStore)
 	}
 
 	if option.Config.EnableCCNPNodeStatusGC && option.Config.CNPNodeStatusGCInterval != 0 {
-		go runCNPNodeStatusGC("ccnp-node-gc", true, ciliumNodeStore)
+		go nodeManager.runCNPNodeStatusGC("ccnp-node-gc", true, ciliumNodeStore)
 	}
 
 	return nil
@@ -170,7 +170,7 @@ func runNodeWatcher() error {
 // runCNPNodeStatusGC runs the node status garbage collector for cilium network
 // policies. The policy corresponds to CiliumClusterwideNetworkPolicy if the clusterwide
 // parameter is true and CiliumNetworkPolicy otherwise.
-func runCNPNodeStatusGC(name string, clusterwide bool, ciliumNodeStore *store.SharedStore) {
+func (nodeManager *NodeManager) runCNPNodeStatusGC(name string, clusterwide bool, ciliumNodeStore *store.SharedStore) {
 	parallelRequests := 4
 	removeNodeFromCNP := make(chan func(), 50)
 	for i := 0; i < parallelRequests; i++ {
@@ -195,7 +195,7 @@ func runCNPNodeStatusGC(name string, clusterwide bool, ciliumNodeStore *store.Sh
 				for {
 					var cnpItemsList []cilium_v2.CiliumNetworkPolicy
 					if clusterwide {
-						ccnpList, err := ciliumK8sClient.CiliumV2().CiliumClusterwideNetworkPolicies().List(ctx,
+						ccnpList, err := nodeManager.clientSet.CiliumV2().CiliumClusterwideNetworkPolicies().List(ctx,
 							meta_v1.ListOptions{
 								Limit:    10,
 								Continue: continueID,
@@ -211,7 +211,7 @@ func runCNPNodeStatusGC(name string, clusterwide bool, ciliumNodeStore *store.Sh
 						}
 						continueID = ccnpList.Continue
 					} else {
-						cnpList, err := ciliumK8sClient.CiliumV2().CiliumNetworkPolicies(core_v1.NamespaceAll).List(ctx,
+						cnpList, err := nodeManager.clientSet.CiliumV2().CiliumNetworkPolicies(core_v1.NamespaceAll).List(ctx,
 							meta_v1.ListOptions{
 								Limit:    10,
 								Continue: continueID,
@@ -247,7 +247,7 @@ func runCNPNodeStatusGC(name string, clusterwide bool, ciliumNodeStore *store.Sh
 							wg.Add(1)
 							cnpCpy := cnp.DeepCopy()
 							removeNodeFromCNP <- func() {
-								updateCNP(ciliumK8sClient.CiliumV2(), cnpCpy, nodesToDelete, k8sCapabilities)
+								updateCNP(nodeManager.clientSet.CiliumV2(), cnpCpy, nodesToDelete, k8sCapabilities)
 								wg.Done()
 							}
 						}
