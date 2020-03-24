@@ -30,9 +30,9 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-// k8sImplementation defines the interface used to interact with the k8s
+// nodeGetterUpdater defines the interface used to interact with the k8s
 // apiserver to retrieve and update the CiliumNode custom resource
-type k8sImplementation interface {
+type nodeGetterUpdater interface {
 	Update(origResource, newResource *v2.CiliumNode) (*v2.CiliumNode, error)
 	UpdateStatus(origResource, newResource *v2.CiliumNode) (*v2.CiliumNode, error)
 	Get(name string) (*v2.CiliumNode, error)
@@ -135,7 +135,7 @@ type NodeManager struct {
 	mutex            lock.RWMutex
 	nodes            nodeMap
 	instancesAPI     AllocationImplementation
-	k8sAPI           k8sImplementation
+	k8sAPI           nodeGetterUpdater
 	metricsAPI       MetricsAPI
 	resyncTrigger    *trigger.Trigger
 	parallelWorkers  int64
@@ -143,7 +143,7 @@ type NodeManager struct {
 }
 
 // NewNodeManager returns a new NodeManager
-func NewNodeManager(instancesAPI AllocationImplementation, k8sAPI k8sImplementation, metrics MetricsAPI, parallelWorkers int64, releaseExcessIPs bool) (*NodeManager, error) {
+func NewNodeManager(instancesAPI AllocationImplementation, k8sAPI nodeGetterUpdater, metrics MetricsAPI, parallelWorkers int64, releaseExcessIPs bool) (*NodeManager, error) {
 	if parallelWorkers < 1 {
 		parallelWorkers = 1
 	}
