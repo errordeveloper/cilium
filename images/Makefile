@@ -18,7 +18,8 @@ lint:
 	scripts/lint.sh
 
 .buildx_builder:
-	mkdir -p .buildx
+	# see https://github.com/docker/buildx/issues/308
+	mkdir -p ../.buildx
 	docker buildx create --platform linux/amd64,linux/arm64 --buildkitd-flags '--debug' > $@
 
 runtime-image: .buildx_builder
