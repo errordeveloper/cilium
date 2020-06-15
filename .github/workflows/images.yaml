@@ -16,6 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - uses: docker://docker.io/cilium/image-maker:bc81755ec8f6c5afcb10a416cef73f99a35fee2c
+        name: TEST
+        with:
+          entrypoint: bash
+          args: -x -c scripts/make-image-tag.sh
+      - uses: docker://docker.io/cilium/image-maker:bc81755ec8f6c5afcb10a416cef73f99a35fee2c
         name: Register binfmt from multi-platform builds
         with:
           entrypoint: docker
